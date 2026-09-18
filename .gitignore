@@ -1,0 +1,17 @@
+﻿.env
+*.env
+.env.local
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+*.pem
+*.key
+secrets/
+*.log
+logs/
+videos/
+*.mp4
+*.mp3
+n8n-workflows/*-with-creds.json

@@ -1,0 +1,13 @@
+﻿{
+    email admin@votre-domaine.com
+}
+
+n8n.votre-domaine.com {
+    reverse_proxy n8n:5678
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        -Server
+    }
+}
