@@ -1,0 +1,212 @@
+{
+  "name": "02 - Script Generation",
+  "nodes": [
+    {
+      "id": "wf02-trigger",
+      "name": "Trigger from WF01",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        400,
+        400
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "wf02-build-prompt",
+      "name": "Build Gemini Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const p = $input.first().json;\nconst prompt = `Tu es expert TikTok affiliate. Crée un script de 25s pour ce produit.\nTitre: ${p.title}\nPrix: ${p.price}€\nCatégorie: ${p.category}\nPourquoi viral: ${p.why_viral}\nHook suggéré: ${p.hook}\n\nRetourne UNIQUEMENT ce JSON valide:\n{\"script\": {\"title\": \"...\", \"hook\": \"...0-3s\", \"scene1\": \"...3-10s\", \"scene2\": \"...10-18s\", \"scene3\": \"...18-23s\", \"cta\": \"...23-25s\", \"hashtags\": [\"#tiktok\",\"#affiliate\",\"#viral\",\"#deal\",\"#pourtoi\"], \"duration_seconds\": 25}}`;\n\nreturn [{\n  json: {\n    ...p,\n    geminiBody: JSON.stringify({\n      contents: [{ parts: [{ text: prompt }] }],\n      generationConfig: { temperature: 0.7, maxOutputTokens: 600 }\n    })\n  }\n}];"
+      }
+    },
+    {
+      "id": "wf02-gemini",
+      "name": "Gemini Script Generator",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        840,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent",
+        "authentication": "none",
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.geminiBody }}"
+      }
+    },
+    {
+      "id": "wf02-parse",
+      "name": "Parse Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const geminiResponse = $input.first().json;\nconst productData = $('Trigger from WF01').item.json;\n\nlet script = {};\ntry {\n  const text = geminiResponse.candidates[0].content.parts[0].text;\n  const jsonMatch = text.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    const parsed = JSON.parse(jsonMatch[0]);\n    script = parsed.script || {};\n  }\n} catch(e) {\n  console.log('Script parse error:', e.message);\n  script = {\n    title: 'Découvrez ' + (productData.title || 'ce produit'),\n    hook: 'Vous ne croirez pas ce que ce produit peut faire...',\n    scene1: 'Montrer le produit dans son emballage',\n    scene2: 'Démonstration en conditions réelles',\n    scene3: 'Avant / Après ou résultat visible',\n    cta: 'Lien sb bio pour commander !',\n    hashtags: ['#tiktokshop', '#affiliate', '#deal', '#viral', '#pourtoi'],\n    duration_seconds: 25\n  };\n}\n\nreturn [{\n  json: {\n    product_id: productData.id || null,\n    product_title: productData.title,\n    platform: productData.platform,\n    script_title: script.title,\n    script_hook: script.hook,\n    script_scene1: script.scene1,\n    script_scene2: script.scene2,\n    script_scene3: script.scene3,\n    script_cta: script.cta,\n    hashtags: (script.hashtags || []).join(' '),\n    duration_seconds: script.duration_seconds || 25,\n    full_script: JSON.stringify(script),\n    generated_at: new Date().toISOString()\n  }\n}];"
+      }
+    },
+    {
+      "id": "wf02-db",
+      "name": "Save Script to DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1280,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "dD9CSJ1v26CSUENv",
+          "name": "Postgres account"
+        }
+      },
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "videos",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "product_id": "={{ $json.product_id }}",
+            "script": "={{ $json.full_script }}",
+            "status": "=script_ready"
+          }
+        },
+        "options": {
+          "returnFields": "id"
+        }
+      }
+    },
+    {
+      "id": "wf02-output",
+      "name": "Output → Workflow 03",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        1500,
+        400
+      ],
+      "parameters": {
+        "options": {},
+        "fields": {
+          "values": [
+            {
+              "name": "video_id",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "product_title",
+              "value": "={{ $('Parse Script').item.json.product_title }}"
+            },
+            {
+              "name": "script_hook",
+              "value": "={{ $('Parse Script').item.json.script_hook }}"
+            },
+            {
+              "name": "full_script",
+              "value": "={{ $('Parse Script').item.json.full_script }}"
+            },
+            {
+              "name": "hashtags",
+              "value": "={{ $('Parse Script').item.json.hashtags }}"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Trigger from WF01": {
+      "main": [
+        [
+          {
+            "node": "Build Gemini Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gemini Prompt": {
+      "main": [
+        [
+          {
+            "node": "Gemini Script Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Script Generator": {
+      "main": [
+        [
+          {
+            "node": "Parse Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Script": {
+      "main": [
+        [
+          {
+            "node": "Save Script to DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Script to DB": {
+      "main": [
+        [
+          {
+            "node": "Output → Workflow 03",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

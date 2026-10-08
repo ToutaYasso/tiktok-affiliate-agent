@@ -1,0 +1,201 @@
+{
+  "name": "01 - Product Discovery",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "3cc6c111-ad07-4355-bf93-3932be6baf98",
+      "name": "Schedule 6h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        1376,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const products = [\n  { title: 'Sérum Vitamine C Anti-âge 30ml', price: '24.99', platform: 'amazon_fr', rank: 1, category: 'beauty', commission_rate: 4 },\n  { title: 'Mascara Volume Extrême Waterproof', price: '12.50', platform: 'amazon_fr', rank: 2, category: 'beauty', commission_rate: 4 },\n  { title: 'Crème Hydratante SPF50 Visage', price: '18.90', platform: 'amazon_fr', rank: 3, category: 'beauty', commission_rate: 4 },\n  { title: 'Écouteurs Sans Fil Bluetooth 5.3', price: '35.99', platform: 'amazon_fr', rank: 4, category: 'electronics', commission_rate: 3 },\n  { title: 'Chargeur Rapide USB-C 65W GaN', price: '15.99', platform: 'amazon_fr', rank: 5, category: 'electronics', commission_rate: 3 },\n  { title: 'Organisateur Maquillage Rotatif', price: '22.99', platform: 'aliexpress', rank: 6, category: 'home', commission_rate: 8 }\n];\nreturn [{ json: { products: products } }];"
+      },
+      "id": "efae51a9-cd40-4e69-8894-186c7175e83f",
+      "name": "Products List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent",
+        "authentication": "none",
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  contents: [{\n    parts: [{\n      text: \"Tu es un expert en marketing TikTok affiliate. Analyse ces produits et sélectionne les 3 meilleurs pour TikTok.\\n\\nProduits: \" + JSON.stringify($json.products) + \"\\n\\nRetourne UNIQUEMENT du JSON valide dans ce format:\\n{\\\"top3\\\": [{\\\"title\\\": \\\"...\\\", \\\"price\\\": \\\"...\\\", \\\"category\\\": \\\"...\\\", \\\"platform\\\": \\\"...\\\", \\\"commission_rate\\\": 0, \\\"score\\\": 0, \\\"why_viral\\\": \\\"...\\\", \\\"hook\\\": \\\"...\\\"}]}\"\n    }]\n  }],\n  generationConfig: { temperature: 0.3, maxOutputTokens: 1024 }\n}) }}"
+      },
+      "id": "8900a122-2f3d-4067-b193-6e65fe6c84a6",
+      "name": "Gemini AI Scoring",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1824,
+        416
+      ],
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 7000
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nlet top3 = [];\ntry {\n  const text = response.candidates[0].content.parts[0].text;\n  const jsonMatch = text.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    const parsed = JSON.parse(jsonMatch[0]);\n    top3 = parsed.top3 || [];\n  }\n} catch(e) {\n  console.log('Parse error:', e.message);\n  top3 = [\n    { title: 'Sérum Vitamine C Anti-âge 30ml', price: '24.99', score: 88, why_viral: 'Transformation visible', hook: 'Ce sérum a transformé ma peau en 7 jours', category: 'beauty', commission_rate: 4, platform: 'amazon_fr' },\n    { title: 'Écouteurs Sans Fil Bluetooth 5.3', price: '35.99', score: 82, why_viral: 'Unboxing satisfaisant', hook: 'Ces écouteurs changent tout', category: 'electronics', commission_rate: 3, platform: 'amazon_fr' },\n    { title: 'Organisateur Maquillage Rotatif', price: '22.99', score: 79, why_viral: 'Révélation organisation', hook: 'Mon dressing avant/après', category: 'home', commission_rate: 8, platform: 'aliexpress' }\n  ];\n}\nreturn top3.map((p, i) => ({\n  json: {\n    platform: p.platform || 'amazon_fr',\n    title: p.title,\n    price: parseFloat(p.price) || 0,\n    commission_rate: p.commission_rate || 4,\n    category: p.category || 'general',\n    score: p.score || 80,\n    affiliate_link: '',\n    rank: i + 1,\n    why_viral: p.why_viral || '',\n    hook: p.hook || '',\n    selected_at: new Date().toISOString()\n  }\n}));"
+      },
+      "id": "6f054440-2636-4915-a451-592c90a5ada6",
+      "name": "Parse Claude Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2048,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "products",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "platform": "={{ $json.platform }}",
+            "title": "={{ $json.title }}",
+            "price": "={{ $json.price }}",
+            "commission_rate": "={{ $json.commission_rate }}",
+            "category": "={{ $json.category }}",
+            "score": "={{ $json.score }}",
+            "affiliate_link": "={{ $json.affiliate_link }}",
+            "why_viral": "={{ $json.why_viral }}",
+            "hook": "={{ $json.hook }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "14b3ddd4-5e59-4e59-ac91-298af96881d6",
+      "name": "Save to PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2256,
+        416
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "dD9CSJ1v26CSUENv",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "e612dc4b-714a-40b4-9187-1331d2261bcc",
+      "name": "Output → Workflow 02",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        2480,
+        416
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule 6h": {
+      "main": [
+        [
+          {
+            "node": "Products List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Products List": {
+      "main": [
+        [
+          {
+            "node": "Gemini AI Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini AI Scoring": {
+      "main": [
+        [
+          {
+            "node": "Parse Claude Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Claude Response": {
+      "main": [
+        [
+          {
+            "node": "Save to PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to PostgreSQL": {
+      "main": [
+        [
+          {
+            "node": "Output → Workflow 02",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "pinData": {}
+}
