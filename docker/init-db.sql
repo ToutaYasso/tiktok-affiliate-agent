@@ -1,4 +1,4 @@
-﻿-- Initialisation base affiliate_agent
+-- Initialisation base affiliate_agent
 CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS products (
@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS products (
     affiliate_link TEXT,
     category VARCHAR(100),
     score DECIMAL(5,2),
+    why_viral TEXT,
+    hook TEXT,
     embedding vector(1536),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()

@@ -1,4 +1,4 @@
-﻿version: "3.8"
+version: "3.8"
 
 services:
   postgres:
@@ -44,6 +44,7 @@ services:
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
       GENERIC_TIMEZONE: Africa/Tunis
       TZ: Africa/Tunis
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
     volumes:
       - n8n_data:/home/node/.n8n
     networks:
