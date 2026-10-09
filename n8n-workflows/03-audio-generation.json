@@ -1,0 +1,618 @@
+﻿{
+    "updatedAt":  "2026-10-09T09:58:16.751Z",
+    "createdAt":  "2026-10-08T14:09:51.987Z",
+    "id":  "KuYJPRpo0o4JG3mg",
+    "name":  "03 - Audio Generation",
+    "description":  null,
+    "active":  true,
+    "isArchived":  false,
+    "nodes":  [
+                  {
+                      "id":  "wf03-node-01",
+                      "name":  "Trigger from WF02",
+                      "type":  "n8n-nodes-base.executeWorkflowTrigger",
+                      "typeVersion":  1,
+                      "position":  [
+                                       260,
+                                       340
+                                   ],
+                      "parameters":  {
+
+                                     }
+                  },
+                  {
+                      "id":  "wf03-node-02",
+                      "name":  "Build TTS Text",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       480,
+                                       340
+                                   ],
+                      "parameters":  {
+                                         "jsCode":  "return $input.all().map(item =\u003e {\n  const d = item.json;\n  let script = {};\n  try {\n    script = JSON.parse(d.full_script || \u0027{}\u0027);\n  } catch(e) { script = {}; }\n  const parts = [\n    script.hook, script.scene1, script.scene2, script.scene3, script.cta\n  ].filter(p =\u003e p \u0026\u0026 p !== \u0027...\u0027 \u0026\u0026 p.replace(/\\s+/g,\u0027\u0027).length \u003e 3);\n  const ttsText = parts.join(\u0027. \u0027) || d.script_hook || \u0027Decouvrez ce produit incroyable!\u0027;\n  const safeName = (d.product_title || \u0027product\u0027).replace(/[^a-z0-9]/gi, \u0027_\u0027).slice(0, 40).toLowerCase();\n  const blobName = `audio/${d.product_id || Date.now()}_${safeName}.mp3`;\n  return { json: { ...d, tts_text: ttsText, blob_name: blobName, video_id: d.video_id || d.id || null } };\n});"
+                                     }
+                  },
+                  {
+                      "id":  "wf03-node-03",
+                      "name":  "ElevenLabs TTS",
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.2,
+                      "position":  [
+                                       700,
+                                       340
+                                   ],
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "=https://api.elevenlabs.io/v1/text-to-speech/{{ $env.ELEVENLABS_VOICE_ID }}",
+                                         "sendHeaders":  true,
+                                         "headerParameters":  {
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "xi-api-key",
+                                                                                         "value":  "={{ $env.ELEVENLABS_API_KEY }}"
+                                                                                     },
+                                                                                     {
+                                                                                         "name":  "Content-Type",
+                                                                                         "value":  "application/json"
+                                                                                     },
+                                                                                     {
+                                                                                         "name":  "Accept",
+                                                                                         "value":  "audio/mpeg"
+                                                                                     }
+                                                                                 ]
+                                                              },
+                                         "sendBody":  true,
+                                         "contentType":  "raw",
+                                         "rawContentType":  "application/json",
+                                         "body":  "={{ JSON.stringify({ text: $json.tts_text, model_id: \u0027eleven_multilingual_v2\u0027, voice_settings: { stability: 0.5, similarity_boost: 0.75 } }) }}",
+                                         "options":  {
+                                                         "response":  {
+                                                                          "response":  {
+                                                                                           "responseFormat":  "file"
+                                                                                       }
+                                                                      }
+                                                     }
+                                     }
+                  },
+                  {
+                      "id":  "wf03-node-04",
+                      "name":  "Build Azure Auth",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       920,
+                                       340
+                                   ],
+                      "parameters":  {
+                                         "jsCode":  "function rotR(x, n) { return (x \u003e\u003e\u003e n) | (x \u003c\u003c (32 - n)); }\nfunction sha256(input) {\n  const H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];\n  const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];\n  const msg = typeof input === \u0027string\u0027 ? Buffer.from(input, \u0027utf8\u0027) : input;\n  const l = msg.length;\n  const extra = 64 - ((l + 9) % 64 || 64);\n  const buf = Buffer.alloc(l + 9 + extra, 0);\n  msg.copy(buf); buf[l] = 0x80;\n  buf.writeUInt32BE(Math.floor(l * 8 / 0x100000000), buf.length - 8);\n  buf.writeUInt32BE((l * 8) \u003e\u003e\u003e 0, buf.length - 4);\n  const w = new Int32Array(64);\n  for (let i = 0; i \u003c buf.length; i += 64) {\n    for (let j = 0; j \u003c 16; j++) w[j] = buf.readInt32BE(i + j * 4);\n    for (let j = 16; j \u003c 64; j++) {\n      const s0 = rotR(w[j-15],7)^rotR(w[j-15],18)^(w[j-15]\u003e\u003e\u003e3);\n      const s1 = rotR(w[j-2],17)^rotR(w[j-2],19)^(w[j-2]\u003e\u003e\u003e10);\n      w[j] = (w[j-16] + s0 + w[j-7] + s1) | 0;\n    }\n    let [a,b,c,d,e,f,g,h] = H;\n    for (let j = 0; j \u003c 64; j++) {\n      const S1 = rotR(e,6)^rotR(e,11)^rotR(e,25);\n      const ch = (e\u0026f)^(~e\u0026g);\n      const t1 = (h + S1 + ch + K[j] + w[j]) | 0;\n      const S0 = rotR(a,2)^rotR(a,13)^rotR(a,22);\n      const mj = (a\u0026b)^(a\u0026c)^(b\u0026c);\n      const t2 = (S0 + mj) | 0;\n      h=g; g=f; f=e; e=(d+t1)|0; d=c; c=b; b=a; a=(t1+t2)|0;\n    }\n    H[0]=(H[0]+a)|0; H[1]=(H[1]+b)|0; H[2]=(H[2]+c)|0; H[3]=(H[3]+d)|0;\n    H[4]=(H[4]+e)|0; H[5]=(H[5]+f)|0; H[6]=(H[6]+g)|0; H[7]=(H[7]+h)|0;\n  }\n  const out = Buffer.alloc(32);\n  H.forEach((v,i) =\u003e out.writeInt32BE(v, i*4));\n  return out;\n}\nfunction hmacSha256(key, msg) {\n  let k = key.length \u003e 64 ? sha256(key) : key;\n  const pk = Buffer.alloc(64, 0); k.copy(pk);\n  const ipad = Buffer.from(pk.map(b =\u003e b ^ 0x36));\n  const opad = Buffer.from(pk.map(b =\u003e b ^ 0x5c));\n  const inner = sha256(Buffer.concat([ipad, typeof msg === \u0027string\u0027 ? Buffer.from(msg,\u0027utf8\u0027) : msg]));\n  return sha256(Buffer.concat([opad, inner]));\n}\n\nconst items = $input.all();\nconst ttsItems = $(\u0027Build TTS Text\u0027).all();\nconst results = [];\n\nfor (let i = 0; i \u003c items.length; i++) {\n  const item = items[i];\n  const d = (ttsItems[i] \u0026\u0026 ttsItems[i].json) ? ttsItems[i].json : (item.json || {});\n\n  const connStr = $env.AZURE_STORAGE_CONNECTION_STRING || \u0027\u0027;\n  const accountName = (connStr.match(/AccountName=([^;]+)/) || [])[1] || \u0027\u0027;\n  const accountKey  = (connStr.match(/AccountKey=([^;]+)/)  || [])[1] || \u0027\u0027;\n  const container   = $env.AZURE_BLOB_CONTAINER || \u0027tiktok-videos\u0027;\n  const blobName    = d.blob_name;\n  const binProp     = item.binary \u0026\u0026 item.binary.data;\n  const contentLength = binProp ? (binProp.bytes || 0).toString() : \u00270\u0027;\n  const contentType = \u0027audio/mpeg\u0027;\n  const msDate      = new Date().toUTCString();\n  const canonHeaders  = [\u0027x-ms-blob-type:BlockBlob\u0027, `x-ms-date:${msDate}`, \u0027x-ms-version:2020-04-08\u0027].join(\u0027\\n\u0027);\n  const canonResource = `/${accountName}/${container}/${blobName}`;\n  const stringToSign  = [\u0027PUT\u0027,\u0027\u0027,\u0027\u0027,contentLength,\u0027\u0027,contentType,\u0027\u0027,\u0027\u0027,\u0027\u0027,\u0027\u0027,\u0027\u0027,\u0027\u0027,canonHeaders,canonResource].join(\u0027\\n\u0027);\n\n  const keyBuf = Buffer.from(accountKey, \u0027base64\u0027);\n  const sigBuf = hmacSha256(keyBuf, Buffer.from(stringToSign, \u0027utf8\u0027));\n  const signature = sigBuf.toString(\u0027base64\u0027);\n\n  results.push({\n    json: {\n      ...d,\n      azure_url: `https://${accountName}.blob.core.windows.net/${container}/${blobName}`,\n      azure_auth: `SharedKey ${accountName}:${signature}`,\n      azure_date: msDate,\n      azure_content_type: contentType,\n      azure_content_length: contentLength\n    },\n    binary: item.binary\n  });\n}\n\nreturn results;"
+                                     }
+                  },
+                  {
+                      "id":  "wf03-node-05",
+                      "name":  "Upload Audio to Azure",
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.2,
+                      "position":  [
+                                       1140,
+                                       340
+                                   ],
+                      "parameters":  {
+                                         "method":  "PUT",
+                                         "url":  "={{ $json.azure_url }}",
+                                         "sendHeaders":  true,
+                                         "headerParameters":  {
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "Authorization",
+                                                                                         "value":  "={{ $json.azure_auth }}"
+                                                                                     },
+                                                                                     {
+                                                                                         "name":  "x-ms-date",
+                                                                                         "value":  "={{ $json.azure_date }}"
+                                                                                     },
+                                                                                     {
+                                                                                         "name":  "x-ms-version",
+                                                                                         "value":  "2020-04-08"
+                                                                                     },
+                                                                                     {
+                                                                                         "name":  "x-ms-blob-type",
+                                                                                         "value":  "BlockBlob"
+                                                                                     },
+                                                                                     {
+                                                                                         "name":  "Content-Type",
+                                                                                         "value":  "={{ $json.azure_content_type }}"
+                                                                                     },
+                                                                                     {
+                                                                                         "name":  "Content-Length",
+                                                                                         "value":  "={{ $json.azure_content_length }}"
+                                                                                     }
+                                                                                 ]
+                                                              },
+                                         "sendBody":  true,
+                                         "contentType":  "binaryData",
+                                         "inputDataFieldName":  "data",
+                                         "options":  {
+
+                                                     }
+                                     }
+                  },
+                  {
+                      "id":  "wf03-node-06",
+                      "name":  "Save Audio to DB",
+                      "type":  "n8n-nodes-base.postgres",
+                      "typeVersion":  2.5,
+                      "position":  [
+                                       1360,
+                                       340
+                                   ],
+                      "credentials":  {
+                                          "postgres":  {
+                                                           "id":  "dD9CSJ1v26CSUENv",
+                                                           "name":  "Postgres account"
+                                                       }
+                                      },
+                      "parameters":  {
+                                         "operation":  "executeQuery",
+                                         "query":  "UPDATE videos SET audio_url = \u0027{{ $node[\"Build Azure Auth\"].json.azure_url }}\u0027, blob_path = \u0027{{ $node[\"Build Azure Auth\"].json.blob_name }}\u0027, status = \u0027audio_ready\u0027 WHERE id = {{ $node[\"Build Azure Auth\"].json.video_id }}; SELECT id, product_id, audio_url, blob_path, status FROM videos WHERE id = {{ $node[\"Build Azure Auth\"].json.video_id }};",
+                                         "options":  {
+
+                                                     }
+                                     }
+                  },
+                  {
+                      "id":  "wf03-node-07",
+                      "name":  "Output ? WF04",
+                      "type":  "n8n-nodes-base.set",
+                      "typeVersion":  3.3,
+                      "position":  [
+                                       1580,
+                                       340
+                                   ],
+                      "parameters":  {
+                                         "options":  {
+
+                                                     },
+                                         "fields":  {
+                                                        "values":  [
+                                                                       {
+                                                                           "name":  "video_id",
+                                                                           "value":  "={{ $json.id }}"
+                                                                       },
+                                                                       {
+                                                                           "name":  "audio_url",
+                                                                           "value":  "={{ $json.audio_url }}"
+                                                                       },
+                                                                       {
+                                                                           "name":  "blob_path",
+                                                                           "value":  "={{ $json.blob_path }}"
+                                                                       },
+                                                                       {
+                                                                           "name":  "product_title",
+                                                                           "value":  "={{ $(\u0027Build TTS Text\u0027).item.json.product_title }}"
+                                                                       },
+                                                                       {
+                                                                           "name":  "hashtags",
+                                                                           "value":  "={{ $(\u0027Build TTS Text\u0027).item.json.hashtags }}"
+                                                                       }
+                                                                   ]
+                                                    }
+                                     }
+                  }
+              ],
+    "connections":  {
+                        "Trigger from WF02":  {
+                                                  "main":  [
+                                                               [
+                                                                   {
+                                                                       "node":  "Build TTS Text",
+                                                                       "type":  "main",
+                                                                       "index":  0
+                                                                   }
+                                                               ]
+                                                           ]
+                                              },
+                        "Build TTS Text":  {
+                                               "main":  [
+                                                            [
+                                                                {
+                                                                    "node":  "ElevenLabs TTS",
+                                                                    "type":  "main",
+                                                                    "index":  0
+                                                                }
+                                                            ]
+                                                        ]
+                                           },
+                        "ElevenLabs TTS":  {
+                                               "main":  [
+                                                            [
+                                                                {
+                                                                    "node":  "Build Azure Auth",
+                                                                    "type":  "main",
+                                                                    "index":  0
+                                                                }
+                                                            ]
+                                                        ]
+                                           },
+                        "Build Azure Auth":  {
+                                                 "main":  [
+                                                              [
+                                                                  {
+                                                                      "node":  "Upload Audio to Azure",
+                                                                      "type":  "main",
+                                                                      "index":  0
+                                                                  }
+                                                              ]
+                                                          ]
+                                             },
+                        "Upload Audio to Azure":  {
+                                                      "main":  [
+                                                                   [
+                                                                       {
+                                                                           "node":  "Save Audio to DB",
+                                                                           "type":  "main",
+                                                                           "index":  0
+                                                                       }
+                                                                   ]
+                                                               ]
+                                                  },
+                        "Save Audio to DB":  {
+                                                 "main":  [
+                                                              [
+                                                                  {
+                                                                      "node":  "Output ? WF04",
+                                                                      "type":  "main",
+                                                                      "index":  0
+                                                                  }
+                                                              ]
+                                                          ]
+                                             }
+                    },
+    "settings":  {
+                     "executionOrder":  "v1"
+                 },
+    "staticData":  null,
+    "meta":  null,
+    "nodeGroups":  [
+
+                   ],
+    "pinData":  {
+
+                },
+    "versionId":  "bfd50826-4972-4dc4-84cc-dcbd6e6b32d4",
+    "activeVersionId":  "2490fd20-99da-4fd8-97ec-f91b6a01361b",
+    "versionCounter":  7,
+    "triggerCount":  0,
+    "sourceWorkflowId":  null,
+    "shared":  [
+                   {
+                       "updatedAt":  "2026-10-08T14:09:51.987Z",
+                       "createdAt":  "2026-10-08T14:09:51.987Z",
+                       "role":  "workflow:owner",
+                       "workflowId":  "KuYJPRpo0o4JG3mg",
+                       "projectId":  "pUM5ZSwpQBklUAKt",
+                       "project":  {
+                                       "updatedAt":  "2026-09-18T13:25:12.843Z",
+                                       "createdAt":  "2026-09-18T11:13:32.886Z",
+                                       "id":  "pUM5ZSwpQBklUAKt",
+                                       "name":  "Amer Jamlaoui \u003camer.jamlaoui@gmail.com\u003e",
+                                       "type":  "personal",
+                                       "icon":  null,
+                                       "description":  null,
+                                       "customTelemetryTags":  [
+
+                                                               ],
+                                       "creatorId":  "d56bd850-6daf-441f-aa21-3b00c6670c3e"
+                                   }
+                   }
+               ],
+    "tags":  [
+
+             ],
+    "parentFolder":  null,
+    "activeVersion":  {
+                          "updatedAt":  "2026-10-09T09:26:03.116Z",
+                          "createdAt":  "2026-10-09T09:26:03.116Z",
+                          "versionId":  "2490fd20-99da-4fd8-97ec-f91b6a01361b",
+                          "workflowId":  "KuYJPRpo0o4JG3mg",
+                          "nodes":  [
+                                        {
+                                            "id":  "wf03-node-01",
+                                            "name":  "Trigger from WF02",
+                                            "type":  "n8n-nodes-base.executeWorkflowTrigger",
+                                            "typeVersion":  1,
+                                            "position":  [
+                                                             260,
+                                                             340
+                                                         ],
+                                            "parameters":  {
+
+                                                           }
+                                        },
+                                        {
+                                            "id":  "wf03-node-02",
+                                            "name":  "Build TTS Text",
+                                            "type":  "n8n-nodes-base.code",
+                                            "typeVersion":  2,
+                                            "position":  [
+                                                             480,
+                                                             340
+                                                         ],
+                                            "parameters":  {
+                                                               "jsCode":  "return $input.all().map(item =\u003e {\n  const d = item.json;\n\n  let script = {};\n  try {\n    script = JSON.parse(d.full_script || \u0027{}\u0027);\n  } catch(e) { script = {}; }\n\n  const parts = [\n    script.hook, script.scene1, script.scene2, script.scene3, script.cta\n  ].filter(p =\u003e p \u0026\u0026 p !== \u0027...\u0027 \u0026\u0026 p.replace(/\\s+/g,\u0027\u0027).length \u003e 3);\n\n  const ttsText = parts.join(\u0027. \u0027) || d.script_hook || \u0027D?couvrez ce produit incroyable!\u0027;\n  const safeName = (d.product_title || \u0027product\u0027).replace(/[^a-z0-9]/gi, \u0027_\u0027).slice(0, 40).toLowerCase();\n  const blobName = `audio/${Date.now()}_${safeName}.mp3`;\n\n  return { json: { ...d, tts_text: ttsText, blob_name: blobName, video_id: d.video_id || d.id || null } };\n});"
+                                                           }
+                                        },
+                                        {
+                                            "id":  "wf03-node-03",
+                                            "name":  "ElevenLabs TTS",
+                                            "type":  "n8n-nodes-base.httpRequest",
+                                            "typeVersion":  4.2,
+                                            "position":  [
+                                                             700,
+                                                             340
+                                                         ],
+                                            "parameters":  {
+                                                               "method":  "POST",
+                                                               "url":  "=https://api.elevenlabs.io/v1/text-to-speech/{{ $env.ELEVENLABS_VOICE_ID }}",
+                                                               "sendHeaders":  true,
+                                                               "headerParameters":  {
+                                                                                        "parameters":  [
+                                                                                                           {
+                                                                                                               "name":  "xi-api-key",
+                                                                                                               "value":  "={{ $env.ELEVENLABS_API_KEY }}"
+                                                                                                           },
+                                                                                                           {
+                                                                                                               "name":  "Content-Type",
+                                                                                                               "value":  "application/json"
+                                                                                                           },
+                                                                                                           {
+                                                                                                               "name":  "Accept",
+                                                                                                               "value":  "audio/mpeg"
+                                                                                                           }
+                                                                                                       ]
+                                                                                    },
+                                                               "sendBody":  true,
+                                                               "contentType":  "raw",
+                                                               "rawContentType":  "application/json",
+                                                               "body":  "={{ JSON.stringify({ text: $json.tts_text, model_id: \u0027eleven_multilingual_v2\u0027, voice_settings: { stability: 0.5, similarity_boost: 0.75 } }) }}",
+                                                               "options":  {
+                                                                               "response":  {
+                                                                                                "response":  {
+                                                                                                                 "responseFormat":  "file"
+                                                                                                             }
+                                                                                            }
+                                                                           }
+                                                           }
+                                        },
+                                        {
+                                            "id":  "wf03-node-04",
+                                            "name":  "Build Azure Auth",
+                                            "type":  "n8n-nodes-base.code",
+                                            "typeVersion":  2,
+                                            "position":  [
+                                                             920,
+                                                             340
+                                                         ],
+                                            "parameters":  {
+                                                               "jsCode":  "// Pure JS SHA-256 + HMAC-SHA256 (no crypto module needed)\nfunction rotR(x, n) { return (x \u003e\u003e\u003e n) | (x \u003c\u003c (32 - n)); }\nfunction sha256(input) {\n  const H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];\n  const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];\n  const msg = typeof input === \u0027string\u0027 ? Buffer.from(input, \u0027utf8\u0027) : input;\n  const l = msg.length;\n  const extra = 64 - ((l + 9) % 64 || 64);\n  const buf = Buffer.alloc(l + 9 + extra, 0);\n  msg.copy(buf); buf[l] = 0x80;\n  buf.writeUInt32BE(Math.floor(l * 8 / 0x100000000), buf.length - 8);\n  buf.writeUInt32BE((l * 8) \u003e\u003e\u003e 0, buf.length - 4);\n  const w = new Int32Array(64);\n  for (let i = 0; i \u003c buf.length; i += 64) {\n    for (let j = 0; j \u003c 16; j++) w[j] = buf.readInt32BE(i + j * 4);\n    for (let j = 16; j \u003c 64; j++) {\n      const s0 = rotR(w[j-15],7)^rotR(w[j-15],18)^(w[j-15]\u003e\u003e\u003e3);\n      const s1 = rotR(w[j-2],17)^rotR(w[j-2],19)^(w[j-2]\u003e\u003e\u003e10);\n      w[j] = (w[j-16] + s0 + w[j-7] + s1) | 0;\n    }\n    let [a,b,c,d,e,f,g,h] = H;\n    for (let j = 0; j \u003c 64; j++) {\n      const S1 = rotR(e,6)^rotR(e,11)^rotR(e,25);\n      const ch = (e\u0026f)^(~e\u0026g);\n      const t1 = (h + S1 + ch + K[j] + w[j]) | 0;\n      const S0 = rotR(a,2)^rotR(a,13)^rotR(a,22);\n      const mj = (a\u0026b)^(a\u0026c)^(b\u0026c);\n      const t2 = (S0 + mj) | 0;\n      h=g; g=f; f=e; e=(d+t1)|0; d=c; c=b; b=a; a=(t1+t2)|0;\n    }\n    H[0]=(H[0]+a)|0; H[1]=(H[1]+b)|0; H[2]=(H[2]+c)|0; H[3]=(H[3]+d)|0;\n    H[4]=(H[4]+e)|0; H[5]=(H[5]+f)|0; H[6]=(H[6]+g)|0; H[7]=(H[7]+h)|0;\n  }\n  const out = Buffer.alloc(32);\n  H.forEach((v,i) =\u003e out.writeInt32BE(v, i*4));\n  return out;\n}\nfunction hmacSha256(key, msg) {\n  let k = key.length \u003e 64 ? sha256(key) : key;\n  const pk = Buffer.alloc(64, 0); k.copy(pk);\n  const ipad = Buffer.from(pk.map(b =\u003e b ^ 0x36));\n  const opad = Buffer.from(pk.map(b =\u003e b ^ 0x5c));\n  const inner = sha256(Buffer.concat([ipad, typeof msg === \u0027string\u0027 ? Buffer.from(msg,\u0027utf8\u0027) : msg]));\n  return sha256(Buffer.concat([opad, inner]));\n}\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const d = item.json;\n  const connStr = $env.AZURE_STORAGE_CONNECTION_STRING || \u0027\u0027;\n  const accountName = (connStr.match(/AccountName=([^;]+)/) || [])[1] || \u0027\u0027;\n  const accountKey  = (connStr.match(/AccountKey=([^;]+)/)  || [])[1] || \u0027\u0027;\n  const container   = $env.AZURE_BLOB_CONTAINER || \u0027tiktok-videos\u0027;\n  const blobName    = d.blob_name;\n  const binProp     = item.binary \u0026\u0026 item.binary.data;\n  const contentLength = binProp ? (binProp.bytes || 0).toString() : \u00270\u0027;\n  const contentType = \u0027audio/mpeg\u0027;\n  const msDate      = new Date().toUTCString();\n  const canonHeaders  = [\u0027x-ms-blob-type:BlockBlob\u0027, `x-ms-date:${msDate}`, \u0027x-ms-version:2020-04-08\u0027].join(\u0027\\n\u0027);\n  const canonResource = `/${accountName}/${container}/${blobName}`;\n  const stringToSign  = [\u0027PUT\u0027,\u0027\u0027,\u0027\u0027,contentLength,\u0027\u0027,contentType,\u0027\u0027,\u0027\u0027,\u0027\u0027,\u0027\u0027,\u0027\u0027,\u0027\u0027,canonHeaders,canonResource].join(\u0027\\n\u0027);\n\n  const keyBuf = Buffer.from(accountKey, \u0027base64\u0027);\n  const sigBuf = hmacSha256(keyBuf, Buffer.from(stringToSign, \u0027utf8\u0027));\n  const signature = sigBuf.toString(\u0027base64\u0027);\n\n  results.push({\n    json: {\n      ...d,\n      azure_url: `https://${accountName}.blob.core.windows.net/${container}/${blobName}`,\n      azure_auth: `SharedKey ${accountName}:${signature}`,\n      azure_date: msDate,\n      azure_content_type: contentType,\n      azure_content_length: contentLength\n    },\n    binary: item.binary\n  });\n}\n\nreturn results;"
+                                                           }
+                                        },
+                                        {
+                                            "id":  "wf03-node-05",
+                                            "name":  "Upload Audio to Azure",
+                                            "type":  "n8n-nodes-base.httpRequest",
+                                            "typeVersion":  4.2,
+                                            "position":  [
+                                                             1140,
+                                                             340
+                                                         ],
+                                            "parameters":  {
+                                                               "method":  "PUT",
+                                                               "url":  "={{ $json.azure_url }}",
+                                                               "sendHeaders":  true,
+                                                               "headerParameters":  {
+                                                                                        "parameters":  [
+                                                                                                           {
+                                                                                                               "name":  "Authorization",
+                                                                                                               "value":  "={{ $json.azure_auth }}"
+                                                                                                           },
+                                                                                                           {
+                                                                                                               "name":  "x-ms-date",
+                                                                                                               "value":  "={{ $json.azure_date }}"
+                                                                                                           },
+                                                                                                           {
+                                                                                                               "name":  "x-ms-version",
+                                                                                                               "value":  "2020-04-08"
+                                                                                                           },
+                                                                                                           {
+                                                                                                               "name":  "x-ms-blob-type",
+                                                                                                               "value":  "BlockBlob"
+                                                                                                           },
+                                                                                                           {
+                                                                                                               "name":  "Content-Type",
+                                                                                                               "value":  "={{ $json.azure_content_type }}"
+                                                                                                           },
+                                                                                                           {
+                                                                                                               "name":  "Content-Length",
+                                                                                                               "value":  "={{ $json.azure_content_length }}"
+                                                                                                           }
+                                                                                                       ]
+                                                                                    },
+                                                               "sendBody":  true,
+                                                               "contentType":  "binaryData",
+                                                               "inputDataFieldName":  "data",
+                                                               "options":  {
+
+                                                                           }
+                                                           }
+                                        },
+                                        {
+                                            "id":  "wf03-node-06",
+                                            "name":  "Save Audio to DB",
+                                            "type":  "n8n-nodes-base.postgres",
+                                            "typeVersion":  2.5,
+                                            "position":  [
+                                                             1360,
+                                                             340
+                                                         ],
+                                            "credentials":  {
+                                                                "postgres":  {
+                                                                                 "id":  "dD9CSJ1v26CSUENv",
+                                                                                 "name":  "Postgres account"
+                                                                             }
+                                                            },
+                                            "parameters":  {
+                                                               "operation":  "executeQuery",
+                                                               "query":  "UPDATE videos SET audio_url = \u0027{{ $node[\"Build Azure Auth\"].json.azure_url }}\u0027, blob_path = \u0027{{ $node[\"Build Azure Auth\"].json.blob_name }}\u0027, status = \u0027audio_ready\u0027 WHERE id = {{ $node[\"Build Azure Auth\"].json.video_id }}; SELECT id, product_id, audio_url, blob_path, status FROM videos WHERE id = {{ $node[\"Build Azure Auth\"].json.video_id }};",
+                                                               "options":  {
+
+                                                                           }
+                                                           }
+                                        },
+                                        {
+                                            "id":  "wf03-node-07",
+                                            "name":  "Output ? WF04",
+                                            "type":  "n8n-nodes-base.set",
+                                            "typeVersion":  3.3,
+                                            "position":  [
+                                                             1580,
+                                                             340
+                                                         ],
+                                            "parameters":  {
+                                                               "options":  {
+
+                                                                           },
+                                                               "fields":  {
+                                                                              "values":  [
+                                                                                             {
+                                                                                                 "name":  "video_id",
+                                                                                                 "value":  "={{ $json.id }}"
+                                                                                             },
+                                                                                             {
+                                                                                                 "name":  "audio_url",
+                                                                                                 "value":  "={{ $json.audio_url }}"
+                                                                                             },
+                                                                                             {
+                                                                                                 "name":  "blob_path",
+                                                                                                 "value":  "={{ $json.blob_path }}"
+                                                                                             },
+                                                                                             {
+                                                                                                 "name":  "product_title",
+                                                                                                 "value":  "={{ $(\u0027Build TTS Text\u0027).item.json.product_title }}"
+                                                                                             },
+                                                                                             {
+                                                                                                 "name":  "hashtags",
+                                                                                                 "value":  "={{ $(\u0027Build TTS Text\u0027).item.json.hashtags }}"
+                                                                                             }
+                                                                                         ]
+                                                                          }
+                                                           }
+                                        }
+                                    ],
+                          "connections":  {
+                                              "Trigger from WF02":  {
+                                                                        "main":  [
+                                                                                     [
+                                                                                         {
+                                                                                             "node":  "Build TTS Text",
+                                                                                             "type":  "main",
+                                                                                             "index":  0
+                                                                                         }
+                                                                                     ]
+                                                                                 ]
+                                                                    },
+                                              "Build TTS Text":  {
+                                                                     "main":  [
+                                                                                  [
+                                                                                      {
+                                                                                          "node":  "ElevenLabs TTS",
+                                                                                          "type":  "main",
+                                                                                          "index":  0
+                                                                                      }
+                                                                                  ]
+                                                                              ]
+                                                                 },
+                                              "ElevenLabs TTS":  {
+                                                                     "main":  [
+                                                                                  [
+                                                                                      {
+                                                                                          "node":  "Build Azure Auth",
+                                                                                          "type":  "main",
+                                                                                          "index":  0
+                                                                                      }
+                                                                                  ]
+                                                                              ]
+                                                                 },
+                                              "Build Azure Auth":  {
+                                                                       "main":  [
+                                                                                    [
+                                                                                        {
+                                                                                            "node":  "Upload Audio to Azure",
+                                                                                            "type":  "main",
+                                                                                            "index":  0
+                                                                                        }
+                                                                                    ]
+                                                                                ]
+                                                                   },
+                                              "Upload Audio to Azure":  {
+                                                                            "main":  [
+                                                                                         [
+                                                                                             {
+                                                                                                 "node":  "Save Audio to DB",
+                                                                                                 "type":  "main",
+                                                                                                 "index":  0
+                                                                                             }
+                                                                                         ]
+                                                                                     ]
+                                                                        },
+                                              "Save Audio to DB":  {
+                                                                       "main":  [
+                                                                                    [
+                                                                                        {
+                                                                                            "node":  "Output ? WF04",
+                                                                                            "type":  "main",
+                                                                                            "index":  0
+                                                                                        }
+                                                                                    ]
+                                                                                ]
+                                                                   }
+                                          },
+                          "nodeGroups":  [
+
+                                         ],
+                          "authors":  "Amer Jamlaoui",
+                          "name":  null,
+                          "description":  null,
+                          "autosaved":  false,
+                          "workflowPublishHistory":  [
+                                                         {
+                                                             "createdAt":  "2026-10-09T09:26:03.607Z",
+                                                             "id":  15,
+                                                             "workflowId":  "KuYJPRpo0o4JG3mg",
+                                                             "versionId":  "2490fd20-99da-4fd8-97ec-f91b6a01361b",
+                                                             "event":  "activated",
+                                                             "userId":  "d56bd850-6daf-441f-aa21-3b00c6670c3e"
+                                                         }
+                                                     ]
+                      },
+    "scopes":  [
+                   "execution:reveal",
+                   "workflow:create",
+                   "workflow:delete",
+                   "workflow:disableRedaction",
+                   "workflow:enableRedaction",
+                   "workflow:execute",
+                   "workflow:execute-chat",
+                   "workflow:export",
+                   "workflow:import",
+                   "workflow:list",
+                   "workflow:move",
+                   "workflow:publish",
+                   "workflow:read",
+                   "workflow:share",
+                   "workflow:unpublish",
+                   "workflow:unshare",
+                   "workflow:update"
+               ],
+    "checksum":  "1b68c29fec44a58bf23bf34b7282d21f93c7599e28a6b6ebe0b0890929ddaade"
+}
