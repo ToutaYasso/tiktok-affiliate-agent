@@ -66,6 +66,25 @@ services:
     networks:
       - affiliate_net
 
+  ffmpeg-worker:
+    build:
+      context: ./ffmpeg-worker
+      dockerfile: Dockerfile
+    container_name: affiliate_ffmpeg_worker
+    restart: unless-stopped
+    environment:
+      AZURE_STORAGE_ACCOUNT: ${AZURE_STORAGE_ACCOUNT}
+      AZURE_STORAGE_KEY: ${AZURE_STORAGE_KEY}
+      AZURE_CONTAINER: ${AZURE_CONTAINER:-tiktok-videos}
+      AZURE_CONNECTION_STRING: ${AZURE_CONNECTION_STRING:-}
+    networks:
+      - affiliate_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   postgres_data:
   n8n_data:

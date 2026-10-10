@@ -1,0 +1,256 @@
+{
+  "name": "WF04 - Video Assembly",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "aa11bb22-cc33-dd44-ee55-ff6677889900",
+      "name": "Schedule 30min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT v.id AS video_id, v.product_id, v.audio_url, v.blob_path AS audio_blob_name,\n       p.title AS product_title, p.image_url, p.affiliate_link, p.hook AS script_hook\nFROM videos v\nJOIN products p ON p.id = v.product_id\nWHERE v.status = 'audio_ready'\nORDER BY v.created_at ASC\nLIMIT 5"
+      },
+      "id": "bb22cc33-dd44-ee55-ff66-778899001122",
+      "name": "Get Audio Ready Videos",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [480, 300],
+      "credentials": {
+        "postgres": {
+          "id": "affiliate_postgres_cred",
+          "name": "Affiliate Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-rows",
+              "leftValue": "={{ $json.video_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cc33dd44-ee55-ff66-7788-990011223344",
+      "name": "Has videos to process?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prépare le payload pour ffmpeg-worker\n// audio_blob_name peut venir de blob_path ou audio_url\nreturn $input.all().map(item => {\n  const d = item.json;\n  \n  // Extraire le blob name depuis audio_url si blob_path est vide\n  let audioBlobName = d.audio_blob_name || '';\n  if (!audioBlobName && d.audio_url) {\n    // Ex: https://account.blob.core.windows.net/container/audio/52_produit.mp3\n    const match = d.audio_url.match(/\\/tiktok-videos\\/(.+)$/);\n    audioBlobName = match ? match[1] : '';\n  }\n  \n  return {\n    json: {\n      ...d,\n      audio_blob_name: audioBlobName,\n      hashtags: d.hashtags || '#tiktok #affiliate #deal',\n      affiliate_link: d.affiliate_link || ''\n    }\n  };\n});"
+      },
+      "id": "dd44ee55-ff66-7788-9900-112233445566",
+      "name": "Prepare Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ffmpeg-worker:8000/generate-video",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "video_id",
+              "value": "={{ $json.video_id }}"
+            },
+            {
+              "name": "product_id",
+              "value": "={{ $json.product_id }}"
+            },
+            {
+              "name": "product_title",
+              "value": "={{ $json.product_title }}"
+            },
+            {
+              "name": "audio_blob_name",
+              "value": "={{ $json.audio_blob_name }}"
+            },
+            {
+              "name": "image_url",
+              "value": "={{ $json.image_url || '' }}"
+            },
+            {
+              "name": "affiliate_link",
+              "value": "={{ $json.affiliate_link || '' }}"
+            },
+            {
+              "name": "hashtags",
+              "value": "={{ $json.hashtags || '' }}"
+            },
+            {
+              "name": "script_hook",
+              "value": "={{ $json.script_hook || '' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "ee55ff66-7788-9900-1122-334455667788",
+      "name": "Call ffmpeg-worker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge résultat ffmpeg-worker avec données originales\nconst ffmpegItems = $input.all();\nconst prepItems = $('Prepare Request').all();\n\nreturn ffmpegItems.map((item, i) => {\n  const orig = (prepItems[i] || {}).json || {};\n  const result = item.json || {};\n  return {\n    json: {\n      video_id:  result.video_id  || orig.video_id,\n      video_url: result.video_url || '',\n      blob_path: result.blob_path || '',\n      status:    result.status   || 'video_ready'\n    }\n  };\n});"
+      },
+      "id": "ff667788-9900-1122-3344-556677889900",
+      "name": "Build Update Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 220]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE videos\nSET status    = 'video_ready',\n    video_url  = '{{ $json.video_url }}',\n    blob_path  = '{{ $json.blob_path }}'\nWHERE id = {{ $json.video_id }}\nRETURNING id, status, video_url;"
+      },
+      "id": "aabb1122-cc33-dd44-ee55-ff6677889901",
+      "name": "Update DB video_ready",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1680, 220],
+      "credentials": {
+        "postgres": {
+          "id": "affiliate_postgres_cred",
+          "name": "Affiliate Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "bbcc2233-dd44-ee55-ff66-778899001123",
+      "name": "No videos to process",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [960, 420]
+    }
+  ],
+  "connections": {
+    "Schedule 30min": {
+      "main": [
+        [
+          {
+            "node": "Get Audio Ready Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Audio Ready Videos": {
+      "main": [
+        [
+          {
+            "node": "Has videos to process?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has videos to process?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No videos to process",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Request": {
+      "main": [
+        [
+          {
+            "node": "Call ffmpeg-worker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call ffmpeg-worker": {
+      "main": [
+        [
+          {
+            "node": "Build Update Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Update Payload": {
+      "main": [
+        [
+          {
+            "node": "Update DB video_ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-10-09T10:00:00.000Z",
+  "versionId": "wf04-video-assembly-v1"
+}
