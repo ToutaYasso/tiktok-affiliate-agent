@@ -31,12 +31,25 @@ AZURE_KEY       = os.getenv("AZURE_STORAGE_KEY", "")
 AZURE_CONTAINER = os.getenv("AZURE_CONTAINER", "tiktok-videos")
 AZURE_CONN_STR  = os.getenv("AZURE_CONNECTION_STRING", "")
 
-# ── Dimensions TikTok ─────────────────────────────────────────────────────────
+# ── Dimensions TikTok / Instagram Reels 9:16 ─────────────────────────────────
 WIDTH, HEIGHT = 1080, 1920
 BG_COLOR   = (15, 15, 25)      # fond sombre
 ACCENT     = (255, 48, 108)    # rose TikTok
 TEXT_WHITE = (255, 255, 255)
 TEXT_GREY  = (180, 180, 180)
+
+# ── Instagram Reels specs ─────────────────────────────────────────────────────
+# Résolution : 1080×1920 (9:16)
+# Frame rate : 30 fps
+# Codec vidéo : H.264 High profile level 4.0
+# Bitrate vidéo : 3500k (recommandé Instagram)
+# Codec audio : AAC 192k 44100Hz
+REELS_FPS        = "30"
+REELS_VIDEO_BR   = "3500k"
+REELS_VIDEO_MAX  = "4000k"
+REELS_VIDEO_BUF  = "8000k"
+REELS_AUDIO_BR   = "192k"
+REELS_AUDIO_RATE = "44100"
 
 # ── Fonts (inclus dans le container via fonts-liberation) ─────────────────────
 FONT_PATH_BOLD   = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
@@ -143,7 +156,7 @@ def generate_frame(
     image_url: Optional[str],
     output_path: str
 ) -> None:
-    """Génère une image 1080×1920 au format TikTok."""
+    """Génère une image 1080×1920 au format TikTok / Instagram Reels."""
     img = Image.new("RGB", (WIDTH, HEIGHT), BG_COLOR)
     draw = ImageDraw.Draw(img)
 
@@ -284,21 +297,37 @@ async def generate_video(req: VideoRequest):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Frame generation failed: {e}")
 
-        # 3. FFmpeg : image + audio → MP4 (durée = durée audio)
+        # 3. FFmpeg : image + audio → MP4 portrait 9:16 Instagram Reels
+        #    Specs Instagram Reels :
+        #      - Résolution  : 1080×1920 (9:16)
+        #      - Frame rate  : 30 fps
+        #      - Codec vidéo : H.264 High profile level 4.0
+        #      - Bitrate vidéo : 3500k (maxrate 4000k, bufsize 8000k)
+        #      - Codec audio : AAC 192k 44100 Hz
+        #      - Pixel format: yuv420p
+        #      - Fast start  : movflags +faststart (streaming web)
         video_path = str(tmp / "video.mp4")
         ffmpeg_cmd = [
             "ffmpeg", "-y",
+            "-framerate", REELS_FPS,          # Frame rate d'entrée (image statique)
             "-loop", "1",
             "-i", frame_path,
             "-i", audio_path,
             "-c:v", "libx264",
-            "-tune", "stillimage",
+            "-profile:v", "high",             # H.264 High profile
+            "-level:v", "4.0",                # Level 4.0 pour 1080p@30fps
+            "-tune", "stillimage",            # Optimisé image fixe
+            "-b:v", REELS_VIDEO_BR,           # Bitrate vidéo 3500k
+            "-maxrate", REELS_VIDEO_MAX,      # Maxrate 4000k
+            "-bufsize", REELS_VIDEO_BUF,      # Buffer 8000k
             "-c:a", "aac",
-            "-b:a", "192k",
+            "-b:a", REELS_AUDIO_BR,           # Audio 192k
+            "-ar", REELS_AUDIO_RATE,          # Sample rate 44100 Hz
             "-pix_fmt", "yuv420p",
+            "-r", REELS_FPS,                  # Frame rate de sortie 30fps
             "-shortest",
-            "-vf", f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease,pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2",
-            "-movflags", "+faststart",
+            "-vf", f"scale={WIDTH}:{HEIGHT}:flags=lanczos",  # Portrait 1080×1920
+            "-movflags", "+faststart",        # Streaming optimisé
             video_path
         ]
         result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=120)
