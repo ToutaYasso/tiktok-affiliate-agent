@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import base64
 import logging
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -30,6 +31,14 @@ AZURE_ACCOUNT   = os.getenv("AZURE_STORAGE_ACCOUNT", "tiktokaffiliate2026")
 AZURE_KEY       = os.getenv("AZURE_STORAGE_KEY", "")
 AZURE_CONTAINER = os.getenv("AZURE_CONTAINER", "tiktok-videos")
 AZURE_CONN_STR  = os.getenv("AZURE_CONNECTION_STRING", "")
+
+# ── Amazon PA API v5 ──────────────────────────────────────────────────────────
+AMAZON_ACCESS_KEY    = os.getenv("AMAZON_ACCESS_KEY", "")
+AMAZON_SECRET_KEY    = os.getenv("AMAZON_SECRET_KEY", "")
+AMAZON_ASSOCIATE_TAG = os.getenv("AMAZON_ASSOCIATE_TAG", "affiliatefres-21")
+AMAZON_HOST          = "webservices.amazon.fr"
+AMAZON_REGION        = "eu-west-1"
+AMAZON_SERVICE       = "ProductAdvertisingAPI"
 
 # ── Dimensions TikTok / Instagram Reels 9:16 ─────────────────────────────────
 WIDTH, HEIGHT = 1080, 1920
@@ -138,11 +147,27 @@ def wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[s
 def download_product_image(image_url: str, dest_path: str) -> bool:
     """Télécharge l'image produit. Retourne False si échec (on utilisera placeholder)."""
     try:
-        r = requests.get(image_url, timeout=10)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.amazon.com/",
+        }
+        r = requests.get(image_url, timeout=15, headers=headers)
         if r.status_code == 200:
-            with open(dest_path, "wb") as f:
-                f.write(r.content)
-            return True
+            content_type = r.headers.get("Content-Type", "")
+            if "image" in content_type or len(r.content) > 5000:
+                with open(dest_path, "wb") as f:
+                    f.write(r.content)
+                # Verify it's a valid image
+                try:
+                    from PIL import Image as PILImg
+                    with PILImg.open(dest_path) as test_img:
+                        test_img.verify()
+                    return True
+                except Exception:
+                    logger.warning(f"Downloaded file is not a valid image: {image_url}")
+                    return False
     except Exception as e:
         logger.warning(f"Image download failed: {e}")
     return False
@@ -191,16 +216,38 @@ def generate_frame(
             img_loaded = False
 
     if not img_loaded:
-        # Placeholder rectangle avec icône
+        # Placeholder dégradé professionnel — affiche le nom du produit
+        try:
+            font_label = ImageFont.truetype(FONT_PATH_BOLD, 30)
+            font_name  = ImageFont.truetype(FONT_PATH_BOLD, 56)
+            font_tag   = ImageFont.truetype(FONT_PATH_REGULAR, 34)
+        except Exception:
+            font_label = ImageFont.load_default(size=30)
+            font_name  = ImageFont.load_default(size=56)
+            font_tag   = ImageFont.load_default(size=34)
+        # Dégradé violet sombre → accent
+        for y_grad in range(IMG_BOX_H):
+            ratio = y_grad / IMG_BOX_H
+            r = int(18 + int(ACCENT[0] * 0.35 * ratio))
+            g = int(8  + int(ACCENT[1] * 0.10 * ratio))
+            b = int(38 + int(40 * ratio))
+            draw.line([(IMG_BOX_X, IMG_BOX_Y + y_grad), (IMG_BOX_X + IMG_BOX_W, IMG_BOX_Y + y_grad)], fill=(r, g, b))
         draw.rounded_rectangle(
             [IMG_BOX_X, IMG_BOX_Y, IMG_BOX_X + IMG_BOX_W, IMG_BOX_Y + IMG_BOX_H],
-            radius=30, fill=(30, 30, 45)
+            radius=30, outline=ACCENT, width=5
         )
-        draw.text(
-            (WIDTH // 2, IMG_BOX_Y + IMG_BOX_H // 2),
-            "🛍️", font=ImageFont.load_default(size=120),
-            anchor="mm", fill=TEXT_GREY
-        )
+        deco_y = IMG_BOX_Y + IMG_BOX_H // 3
+        draw.rectangle([(IMG_BOX_X + 60, deco_y), (IMG_BOX_X + IMG_BOX_W - 60, deco_y + 3)], fill=ACCENT)
+        draw.text((WIDTH // 2, IMG_BOX_Y + 50), "PRODUIT", font=font_label, fill=ACCENT, anchor="mt")
+        name_lines = wrap_text(product_title, font_name, IMG_BOX_W - 80)
+        name_y = deco_y + 40
+        for line in name_lines[:4]:
+            draw.text((WIDTH // 2, name_y), line, font=font_name, fill=TEXT_WHITE, anchor="mt",
+                      stroke_width=2, stroke_fill=(0, 0, 0))
+            name_y += 70
+        badge_y = IMG_BOX_Y + IMG_BOX_H - 90
+        draw.rounded_rectangle([(WIDTH // 2 - 160, badge_y), (WIDTH // 2 + 160, badge_y + 60)], radius=30, fill=ACCENT)
+        draw.text((WIDTH // 2, badge_y + 30), "amazon.fr", font=font_tag, fill=TEXT_WHITE, anchor="mm")
 
     # ── Barre accent haut ────────────────────────────────────────────────
     draw.rectangle([(0, 0), (WIDTH, 8)], fill=ACCENT)
@@ -245,18 +292,8 @@ def generate_frame(
     draw.text((WIDTH // 2, CTA_Y + 45), "🔗 Voir le produit", font=font_cta,
               fill=TEXT_WHITE, anchor="mm")
 
-    # ── Hashtags ─────────────────────────────────────────────────────────
-    if hashtags:
-        try:
-            font_hash = ImageFont.truetype(FONT_PATH_REGULAR, 32)
-        except Exception:
-            font_hash = ImageFont.load_default(size=32)
-        hash_y = CTA_Y + 110
-        hash_lines = wrap_text(hashtags, font_hash, WIDTH - 80)
-        for line in hash_lines[:3]:
-            draw.text((WIDTH // 2, hash_y), line, font=font_hash,
-                      fill=ACCENT, anchor="mt")
-            hash_y += 42
+    # NOTE: Les hashtags ne sont PAS affichés dans la vidéo.
+    # Ils appartiennent uniquement à la description/caption Instagram (WF05).
 
     # ── Barre accent bas ─────────────────────────────────────────────────
     draw.rectangle([(0, HEIGHT - 8), (WIDTH, HEIGHT)], fill=ACCENT)
@@ -307,16 +344,21 @@ async def generate_video(req: VideoRequest):
         #      - Pixel format: yuv420p
         #      - Fast start  : movflags +faststart (streaming web)
         video_path = str(tmp / "video.mp4")
+        # Ken Burns gentle zoom-in effect: scale 110%→100% over the audio duration
+        # zoompan=z='min(zoom+0.0005,1.1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30
+        kenburns_filter = (
+            f"zoompan=z='if(lte(zoom,1.0),1.1,max(1.001,zoom-0.0005))':"
+            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={WIDTH}x{HEIGHT}:fps={REELS_FPS},"
+            f"scale={WIDTH}:{HEIGHT}:flags=lanczos"
+        )
         ffmpeg_cmd = [
             "ffmpeg", "-y",
-            "-framerate", REELS_FPS,          # Frame rate d'entrée (image statique)
             "-loop", "1",
             "-i", frame_path,
             "-i", audio_path,
             "-c:v", "libx264",
             "-profile:v", "high",             # H.264 High profile
             "-level:v", "4.0",                # Level 4.0 pour 1080p@30fps
-            "-tune", "stillimage",            # Optimisé image fixe
             "-b:v", REELS_VIDEO_BR,           # Bitrate vidéo 3500k
             "-maxrate", REELS_VIDEO_MAX,      # Maxrate 4000k
             "-bufsize", REELS_VIDEO_BUF,      # Buffer 8000k
@@ -326,7 +368,7 @@ async def generate_video(req: VideoRequest):
             "-pix_fmt", "yuv420p",
             "-r", REELS_FPS,                  # Frame rate de sortie 30fps
             "-shortest",
-            "-vf", f"scale={WIDTH}:{HEIGHT}:flags=lanczos",  # Portrait 1080×1920
+            "-vf", kenburns_filter,           # Ken Burns zoom effect + portrait 1080×1920
             "-movflags", "+faststart",        # Streaming optimisé
             video_path
         ]
@@ -337,8 +379,12 @@ async def generate_video(req: VideoRequest):
         logger.info(f"FFmpeg OK, video: {os.path.getsize(video_path)} bytes")
 
         # 4. Upload MP4 vers Azure Blob
-        safe_title = (req.product_title or "product").replace(" ", "_")[:30].lower()
-        safe_title = "".join(c for c in safe_title if c.isalnum() or c == "_")
+        # Normalise les accents (é→e, è→e, ô→o…) pour éviter les caractères non-ASCII dans les URLs
+        raw_title = req.product_title or "product"
+        normalized = unicodedata.normalize("NFKD", raw_title)
+        ascii_title = "".join(c for c in normalized if not unicodedata.combining(c))
+        safe_title = ascii_title.replace(" ", "_")[:30].lower()
+        safe_title = "".join(c for c in safe_title if c.isascii() and (c.isalnum() or c == "_"))
         blob_name = f"videos/{req.product_id}_{safe_title}.mp4"
         try:
             video_url = upload_blob(video_path, blob_name)
@@ -351,6 +397,125 @@ async def generate_video(req: VideoRequest):
         blob_path=blob_name,
         status="video_ready"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Amazon PA API v5 — recherche produit
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _amz_sign(key: bytes, msg: str) -> bytes:
+    return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+
+def _get_signature_key(secret: str, date_str: str, region: str, service: str) -> bytes:
+    k_date    = _amz_sign(("AWS4" + secret).encode("utf-8"), date_str)
+    k_region  = _amz_sign(k_date, region)
+    k_service = _amz_sign(k_region, service)
+    return _amz_sign(k_service, "aws4_request")
+
+
+def search_amazon_product(keywords: str, category: str = "All") -> Optional[dict]:
+    """
+    Cherche le meilleur produit Amazon.fr correspondant aux mots-clés.
+    Retourne {asin, title, image_url, price, affiliate_link} ou None si échec.
+    """
+    import json as _json
+
+    if not AMAZON_ACCESS_KEY or not AMAZON_SECRET_KEY:
+        logger.warning("Amazon PA API keys missing — skipping Amazon search")
+        return None
+
+    now      = datetime.now(timezone.utc)
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_str = now.strftime("%Y%m%d")
+
+    payload = {
+        "Keywords": keywords,
+        "Resources": ["Images.Primary.Large", "ItemInfo.Title", "Offers.Listings.Price"],
+        "SearchIndex": category,
+        "PartnerTag": AMAZON_ASSOCIATE_TAG,
+        "PartnerType": "Associates",
+        "Marketplace": "www.amazon.fr",
+        "ItemCount": 1
+    }
+    body      = _json.dumps(payload)
+    body_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    uri       = "/paapi5/searchitems"
+
+    headers_dict = {
+        "content-encoding": "amz-1.0",
+        "content-type":     "application/json; charset=utf-8",
+        "host":             AMAZON_HOST,
+        "x-amz-date":       amz_date,
+        "x-amz-target":     "com.amazon.paapi5.v1.ProductAdvertisingAPIv1.SearchItems"
+    }
+    signed_headers_str = ";".join(sorted(headers_dict.keys()))
+    canonical_headers  = "".join(f"{k}:{v}\n" for k, v in sorted(headers_dict.items()))
+    canonical_request  = "\n".join([
+        "POST", uri, "",
+        canonical_headers, signed_headers_str, body_hash
+    ])
+    credential_scope = f"{date_str}/{AMAZON_REGION}/{AMAZON_SERVICE}/aws4_request"
+    string_to_sign   = "\n".join([
+        "AWS4-HMAC-SHA256", amz_date, credential_scope,
+        hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
+    ])
+    signing_key = _get_signature_key(AMAZON_SECRET_KEY, date_str, AMAZON_REGION, AMAZON_SERVICE)
+    signature   = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+    auth_header = (
+        f"AWS4-HMAC-SHA256 Credential={AMAZON_ACCESS_KEY}/{credential_scope}, "
+        f"SignedHeaders={signed_headers_str}, Signature={signature}"
+    )
+
+    try:
+        resp = requests.post(
+            f"https://{AMAZON_HOST}{uri}",
+            data=body,
+            headers={**headers_dict, "Authorization": auth_header},
+            timeout=10
+        )
+        if resp.status_code != 200:
+            logger.warning(f"Amazon PA API {resp.status_code}: {resp.text[:300]}")
+            return None
+        items = resp.json().get("SearchResult", {}).get("Items", [])
+        if not items:
+            logger.info(f"Amazon PA API: no results for '{keywords}'")
+            return None
+        item  = items[0]
+        asin  = item.get("ASIN", "")
+        title = item.get("ItemInfo", {}).get("Title", {}).get("DisplayValue", keywords)
+        img   = item.get("Images", {}).get("Primary", {}).get("Large", {}).get("URL", "")
+        price = (item.get("Offers", {}).get("Listings") or [{}])[0].get("Price", {}).get("DisplayAmount", "")
+        return {
+            "asin":          asin,
+            "title":         title,
+            "image_url":     img,
+            "price":         price,
+            "affiliate_link": f"https://www.amazon.fr/dp/{asin}?tag={AMAZON_ASSOCIATE_TAG}"
+        }
+    except Exception as e:
+        logger.warning(f"Amazon PA API request failed: {e}")
+        return None
+
+
+class AmazonSearchRequest(BaseModel):
+    keywords: str
+    category: str = "All"
+
+
+@app.post("/search-amazon")
+async def search_amazon(req: AmazonSearchRequest):
+    """
+    Recherche un produit sur Amazon.fr via PA API v5.
+    Utilisé par WF01 pour enrichir les données produit avec ASIN, image et prix réels.
+    """
+    result = search_amazon_product(req.keywords, req.category)
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail="Produit non trouvé sur Amazon ou clés PA API manquantes"
+        )
+    return result
 
 
 @app.get("/health")
