@@ -289,7 +289,7 @@ def generate_frame(
         font_cta = ImageFont.truetype(FONT_PATH_BOLD, 38)
     except Exception:
         font_cta = ImageFont.load_default(size=38)
-    draw.text((WIDTH // 2, CTA_Y + 45), "🔗 Voir le produit", font=font_cta,
+    draw.text((WIDTH // 2, CTA_Y + 45), "Voir le produit  >>", font=font_cta,
               fill=TEXT_WHITE, anchor="mm")
 
     # NOTE: Les hashtags ne sont PAS affichés dans la vidéo.
@@ -397,125 +397,6 @@ async def generate_video(req: VideoRequest):
         blob_path=blob_name,
         status="video_ready"
     )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Amazon PA API v5 — recherche produit
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _amz_sign(key: bytes, msg: str) -> bytes:
-    return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
-
-
-def _get_signature_key(secret: str, date_str: str, region: str, service: str) -> bytes:
-    k_date    = _amz_sign(("AWS4" + secret).encode("utf-8"), date_str)
-    k_region  = _amz_sign(k_date, region)
-    k_service = _amz_sign(k_region, service)
-    return _amz_sign(k_service, "aws4_request")
-
-
-def search_amazon_product(keywords: str, category: str = "All") -> Optional[dict]:
-    """
-    Cherche le meilleur produit Amazon.fr correspondant aux mots-clés.
-    Retourne {asin, title, image_url, price, affiliate_link} ou None si échec.
-    """
-    import json as _json
-
-    if not AMAZON_ACCESS_KEY or not AMAZON_SECRET_KEY:
-        logger.warning("Amazon PA API keys missing — skipping Amazon search")
-        return None
-
-    now      = datetime.now(timezone.utc)
-    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
-    date_str = now.strftime("%Y%m%d")
-
-    payload = {
-        "Keywords": keywords,
-        "Resources": ["Images.Primary.Large", "ItemInfo.Title", "Offers.Listings.Price"],
-        "SearchIndex": category,
-        "PartnerTag": AMAZON_ASSOCIATE_TAG,
-        "PartnerType": "Associates",
-        "Marketplace": "www.amazon.fr",
-        "ItemCount": 1
-    }
-    body      = _json.dumps(payload)
-    body_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
-    uri       = "/paapi5/searchitems"
-
-    headers_dict = {
-        "content-encoding": "amz-1.0",
-        "content-type":     "application/json; charset=utf-8",
-        "host":             AMAZON_HOST,
-        "x-amz-date":       amz_date,
-        "x-amz-target":     "com.amazon.paapi5.v1.ProductAdvertisingAPIv1.SearchItems"
-    }
-    signed_headers_str = ";".join(sorted(headers_dict.keys()))
-    canonical_headers  = "".join(f"{k}:{v}\n" for k, v in sorted(headers_dict.items()))
-    canonical_request  = "\n".join([
-        "POST", uri, "",
-        canonical_headers, signed_headers_str, body_hash
-    ])
-    credential_scope = f"{date_str}/{AMAZON_REGION}/{AMAZON_SERVICE}/aws4_request"
-    string_to_sign   = "\n".join([
-        "AWS4-HMAC-SHA256", amz_date, credential_scope,
-        hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
-    ])
-    signing_key = _get_signature_key(AMAZON_SECRET_KEY, date_str, AMAZON_REGION, AMAZON_SERVICE)
-    signature   = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
-    auth_header = (
-        f"AWS4-HMAC-SHA256 Credential={AMAZON_ACCESS_KEY}/{credential_scope}, "
-        f"SignedHeaders={signed_headers_str}, Signature={signature}"
-    )
-
-    try:
-        resp = requests.post(
-            f"https://{AMAZON_HOST}{uri}",
-            data=body,
-            headers={**headers_dict, "Authorization": auth_header},
-            timeout=10
-        )
-        if resp.status_code != 200:
-            logger.warning(f"Amazon PA API {resp.status_code}: {resp.text[:300]}")
-            return None
-        items = resp.json().get("SearchResult", {}).get("Items", [])
-        if not items:
-            logger.info(f"Amazon PA API: no results for '{keywords}'")
-            return None
-        item  = items[0]
-        asin  = item.get("ASIN", "")
-        title = item.get("ItemInfo", {}).get("Title", {}).get("DisplayValue", keywords)
-        img   = item.get("Images", {}).get("Primary", {}).get("Large", {}).get("URL", "")
-        price = (item.get("Offers", {}).get("Listings") or [{}])[0].get("Price", {}).get("DisplayAmount", "")
-        return {
-            "asin":          asin,
-            "title":         title,
-            "image_url":     img,
-            "price":         price,
-            "affiliate_link": f"https://www.amazon.fr/dp/{asin}?tag={AMAZON_ASSOCIATE_TAG}"
-        }
-    except Exception as e:
-        logger.warning(f"Amazon PA API request failed: {e}")
-        return None
-
-
-class AmazonSearchRequest(BaseModel):
-    keywords: str
-    category: str = "All"
-
-
-@app.post("/search-amazon")
-async def search_amazon(req: AmazonSearchRequest):
-    """
-    Recherche un produit sur Amazon.fr via PA API v5.
-    Utilisé par WF01 pour enrichir les données produit avec ASIN, image et prix réels.
-    """
-    result = search_amazon_product(req.keywords, req.category)
-    if not result:
-        raise HTTPException(
-            status_code=404,
-            detail="Produit non trouvé sur Amazon ou clés PA API manquantes"
-        )
-    return result
 
 
 @app.get("/health")
